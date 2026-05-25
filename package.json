@@ -1,0 +1,24 @@
+{
+  "name": "voiden-type-generator",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "build": "node esbuild.config.mjs",
+    "package": "node esbuild.config.mjs && cp src/manifest.json dist/manifest.json && cd dist && zip voiden-type-generator.zip manifest.json main.js",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@voiden/sdk": "^1.0.8",
+    "quicktype-core": "^23.0.0",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0"
+  },
+  "devDependencies": {
+    "@types/react": "^18.2.15",
+    "@types/react-dom": "^18.2.7",
+    "esbuild": "^0.25.0",
+    "typescript": "^5.0.0",
+    "vitest": "^1.0.0"
+  }
+}
