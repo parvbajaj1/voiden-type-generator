@@ -28,6 +28,8 @@ declare module "@voiden/sdk/ui" {
     };
     ui: {
       showToast: (message: string, type?: "info" | "success" | "warning" | "error") => void;
+      openRightSidebarTab: (id: string, openResponsePanel?: boolean) => void;
+      openRightPanel: () => void;
     };
   }
 }
