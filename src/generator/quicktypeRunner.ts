@@ -17,7 +17,8 @@ export async function runQuicktype({
   className,
   rendererOptions,
 }: RunQuicktypeArgs): Promise<string> {
-  const input = await jsonInputForTargetLanguage(language);
+  // quicktype-core types lang as a string literal union; cast to satisfy it
+  const input = await jsonInputForTargetLanguage(language as never);
   await input.addSource({ name: className, samples: [json] });
 
   const inputData = new InputData();
@@ -25,12 +26,11 @@ export async function runQuicktype({
 
   const result = await quicktype({
     inputData,
-    lang: language,
+    lang: language as never,
     rendererOptions,
     inferMaps: true,
     inferEnums: true,
     inferUuids: false,
-    inferDates: false,
     combineClasses: true,
     allPropertiesOptional: false,
   });
