@@ -3,7 +3,7 @@ import type { PluginContext } from "@voiden/sdk/ui";
 declare module "@voiden/sdk/ui" {
   interface PluginContext {
     onBuildRequest: (
-      handler: (request: { url: string; method: string }) => void
+      handler: (request: Record<string, any>, editor: any) => Promise<Record<string, any>> | Record<string, any>
     ) => void;
     onProcessResponse: (
       handler: (response: {

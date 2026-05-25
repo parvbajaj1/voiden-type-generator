@@ -12,10 +12,11 @@ export default (ctx: PluginContext) => ({
     const pendingRequest = { url: "", method: "" };
     let cachedTabId: string | null = null;
 
-    // Capture request URL and method before the request fires
+    // Capture request URL and method, then return request unchanged to keep the pipeline intact
     ctx.onBuildRequest((request) => {
-      pendingRequest.url = request.url ?? "";
-      pendingRequest.method = request.method ?? "";
+      pendingRequest.url = request?.url ?? "";
+      pendingRequest.method = request?.method ?? "";
+      return request;
     });
 
     // Capture response body and status after request completes
