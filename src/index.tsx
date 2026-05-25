@@ -3,43 +3,62 @@ import type { PluginContext } from "@voiden/sdk/ui";
 import type { CapturedResponse } from "./types/pluginTypes";
 import { GenerateTab } from "./ui/GenerateTab";
 
-const SIDEBAR_TAB_ID = "voiden-type-generator";
+const TAB_ID = "voiden-type-generator";
 
 export default (ctx: PluginContext) => ({
   onload: async () => {
-    const responseRef: { current: CapturedResponse | null } = { current: null };
-    const pendingRequest = { url: "", method: "" };
+    const responsesMap = new Map<string, CapturedResponse>();
+    const pendingRequest = { url: "", method: "", docTabId: "" };
+    const responseListeners = new Set<(r: CapturedResponse, tabId: string) => void>();
 
-    // Capture request URL and method — must return request to keep the pipeline intact
+    // Capture the active document tab ID at the moment a request is sent
     ctx.onBuildRequest((request) => {
       pendingRequest.url = request?.url ?? "";
       pendingRequest.method = request?.method ?? "";
+      const editor = ctx.project.getActiveEditor("voiden");
+      pendingRequest.docTabId = (editor as any)?.storage?.tabId ?? "";
       return request;
     });
 
-    // Capture response body and status after request completes
     ctx.onProcessResponse((response) => {
-      responseRef.current = {
-        body:
-          typeof response.body === "string"
-            ? response.body
-            : JSON.stringify(response.body),
+      const docTabId = pendingRequest.docTabId;
+      const captured: CapturedResponse = {
+        body: typeof response.body === "string"
+          ? response.body
+          : JSON.stringify(response.body),
         status: response.status,
         url: pendingRequest.url,
         method: pendingRequest.method,
         label: response.__sectionLabel ?? "",
       };
+      if (docTabId) responsesMap.set(docTabId, captured);
+      responseListeners.forEach((fn) => fn(captured, docTabId));
     });
 
-    // Register as a persistent right sidebar tab (lives alongside the response panel)
+    const subscribe = (fn: (r: CapturedResponse, tabId: string) => void) => {
+      responseListeners.add(fn);
+      return () => responseListeners.delete(fn);
+    };
+
+    const getResponseForTab = (tabId: string) => responsesMap.get(tabId) ?? null;
+
+    // Returns the document tab ID of the currently active void file
+    const getActiveTabId = () => {
+      const editor = ctx.project.getActiveEditor("voiden");
+      return (editor as any)?.storage?.tabId ?? "";
+    };
+
     ctx.registerSidebarTab("right", {
-      id: SIDEBAR_TAB_ID,
-      icon: "Braces",
+      id: TAB_ID,
       title: "Types",
-      component: () => <GenerateTab getResponse={() => responseRef.current} />,
+      icon: "Braces",
+      component: () => React.createElement(GenerateTab, {
+        subscribe,
+        getResponseForTab,
+        getActiveTabId,
+      }),
     });
 
-    // Status bar button opens the right panel and switches to this tab
     (ctx as any).registerStatusBarItem({
       id: "voiden-type-generator-btn",
       icon: "Braces",
@@ -47,12 +66,11 @@ export default (ctx: PluginContext) => ({
       tooltip: "Generate types from last response",
       position: "right",
       onClick: () => {
-        ctx.ui.openRightSidebarTab(SIDEBAR_TAB_ID);
+        ctx.ui.openRightPanel();
+        ctx.ui.openRightSidebarTab(TAB_ID);
       },
     });
   },
 
-  onunload: () => {
-    // Voiden removes registered hooks and sidebar tabs automatically on plugin unload
-  },
+  onunload: () => {},
 });

@@ -14,7 +14,9 @@ import { runQuicktype } from "../generator/quicktypeRunner";
 const PREFS_KEY = "voiden:type-generator:prefs";
 
 type Props = {
-  getResponse: () => CapturedResponse | null;
+  subscribe: (fn: (r: CapturedResponse, tabId: string) => void) => () => void;
+  getResponseForTab: (tabId: string) => CapturedResponse | null;
+  getActiveTabId: () => string;
 };
 
 type Prefs = {
@@ -42,45 +44,64 @@ function buildOptions(lang: SupportedLanguage, saved: Partial<GeneratorOptions>)
   return { language: lang, className: "", ...defaults, ...saved } as GeneratorOptions;
 }
 
-export function GenerateTab({ getResponse }: Props) {
+export function GenerateTab({ subscribe, getResponseForTab, getActiveTabId }: Props) {
   const prefs = loadPrefs();
 
-  const [response, setResponse] = useState<CapturedResponse | null>(
-    () => getResponse()
-  );
+  const [jsonInput, setJsonInput] = useState("");
   const [language, setLanguage] = useState<SupportedLanguage>(prefs.language);
   const [className, setClassName] = useState(prefs.className || "Root");
   const [options, setOptions] = useState<GeneratorOptions>(() =>
     buildOptions(prefs.language, prefs.options)
   );
-  const [preview, setPreview] = useState("");
+  const [output, setOutput] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [showOptions, setShowOptions] = useState(false);
   const debounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  const activeTabIdRef = useRef(getActiveTabId());
+
+  // Auto-fill when a new response arrives for the currently active tab
+  useEffect(() => {
+    return subscribe((r, tabId) => {
+      activeTabIdRef.current = tabId;
+      setJsonInput(r.body);
+    });
+  }, [subscribe]);
+
+  // Poll for active tab switches and load the stored response for that tab
+  useEffect(() => {
+    const timer = setInterval(() => {
+      const current = getActiveTabId();
+      if (current && current !== activeTabIdRef.current) {
+        activeTabIdRef.current = current;
+        const stored = getResponseForTab(current);
+        setJsonInput(stored?.body ?? "");
+        setOutput("");
+        setError(null);
+      }
+    }, 400);
+    return () => clearInterval(timer);
+  }, [getActiveTabId, getResponseForTab]);
+
   const generate = useCallback(
-    async (
-      lang: SupportedLanguage,
-      name: string,
-      opts: GeneratorOptions,
-      json: string
-    ) => {
+    async (json: string, lang: SupportedLanguage, name: string, opts: GeneratorOptions) => {
+      if (!json.trim()) return;
       setIsGenerating(true);
       setError(null);
       try {
         const config = getLanguageConfig(lang);
-        const rendererOptions = config.buildRendererOptions(opts);
         const code = await runQuicktype({
           json,
           language: config.rendererName,
           className: name || "Root",
-          rendererOptions,
+          rendererOptions: config.buildRendererOptions(opts),
         });
-        setPreview(code);
+        setOutput(code);
       } catch (e) {
         setError(e instanceof Error ? e.message : String(e));
-        setPreview("");
+        setOutput("");
       } finally {
         setIsGenerating(false);
       }
@@ -88,22 +109,28 @@ export function GenerateTab({ getResponse }: Props) {
     []
   );
 
-  // Debounced re-generation on any input change
+  // Debounced re-generation whenever any input changes
   useEffect(() => {
-    if (!response) return;
+    if (!jsonInput.trim()) return;
     if (debounceTimer.current) clearTimeout(debounceTimer.current);
     debounceTimer.current = setTimeout(() => {
-      generate(language, className, options, response.body);
+      generate(jsonInput, language, className, options);
     }, 300);
     return () => {
       if (debounceTimer.current) clearTimeout(debounceTimer.current);
     };
-  }, [language, className, options, response, generate]);
+  }, [jsonInput, language, className, options, generate]);
 
-  // Persist preferences
+  // Persist preferences whenever they change
   useEffect(() => {
     savePrefs({ language, className, options });
   }, [language, className, options]);
+
+  const handleRefresh = () => {
+    const tabId = getActiveTabId();
+    const latest = tabId ? getResponseForTab(tabId) : null;
+    if (latest) setJsonInput(latest.body);
+  };
 
   const handleLanguageChange = (lang: SupportedLanguage) => {
     setLanguage(lang);
@@ -111,159 +138,134 @@ export function GenerateTab({ getResponse }: Props) {
   };
 
   const handleOptionToggle = (key: keyof GeneratorOptions) => {
-    setOptions((prev) => ({ ...prev, [key]: !(prev as Record<string, unknown>)[key] }));
-  };
-
-  const handleRefresh = () => {
-    const latest = getResponse();
-    if (latest) setResponse(latest);
+    setOptions((prev) => ({
+      ...prev,
+      [key]: !(prev as Record<string, unknown>)[key],
+    }));
   };
 
   const handleCopy = async () => {
-    if (!preview) return;
+    if (!output) return;
     try {
-      await navigator.clipboard.writeText(preview);
+      await navigator.clipboard.writeText(output);
       setCopied(true);
       setTimeout(() => setCopied(false), 1500);
     } catch {
-      setError("Copy failed — check browser permissions.");
+      setError("Copy failed.");
     }
   };
 
+  const langLabel = getAllLanguages().find((l) => l.value === language)?.label ?? language;
+
   return (
-    <div
-      style={{
-        display: "flex",
-        flexDirection: "column",
-        height: "100%",
-        padding: "16px",
-        gap: "12px",
-        overflowY: "auto",
-        color: "var(--text-primary, #e2e8f0)",
-        fontFamily: "sans-serif",
-        fontSize: "13px",
-      }}
-    >
-      {/* Header */}
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-        <span style={{ fontWeight: 600, fontSize: "15px" }}>Generate Types</span>
-        <button onClick={handleRefresh} style={secondaryBtn}>
-          Refresh
-        </button>
-      </div>
+    <div style={{ display: "flex", flexDirection: "column", height: "100%", overflow: "hidden", background: "var(--bg-primary, #0d0d0d)", color: "var(--text-primary, #e2e8f0)", fontFamily: "sans-serif", fontSize: "13px" }}>
 
-      {/* Source info */}
-      {response ? (
-        <div style={{ color: "var(--comment, #888)", fontSize: "12px" }}>
-          {response.method || "?"} {response.url || "(unknown URL)"} · {response.status}
-          {response.label ? ` · ${response.label}` : ""}
-        </div>
-      ) : (
-        <div style={{ color: "var(--icon-error, #f87171)", fontSize: "12px" }}>
-          No response captured yet — run a request first.
-        </div>
-      )}
-
-      {/* Language selector */}
-      <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
-        <label style={{ minWidth: "64px", color: "var(--comment, #888)" }}>Language</label>
+      {/* ── Top bar ── */}
+      <div style={{ display: "flex", alignItems: "center", gap: "6px", padding: "6px 8px", borderBottom: "1px solid var(--border-subtle, #1e1e1e)", flexShrink: 0, flexWrap: "wrap" }}>
         <select
           value={language}
           onChange={(e) => handleLanguageChange(e.target.value as SupportedLanguage)}
           style={selectStyle}
         >
           {getAllLanguages().map((l) => (
-            <option key={l.value} value={l.value}>
-              {l.label}
-            </option>
+            <option key={l.value} value={l.value}>{l.label}</option>
           ))}
         </select>
-      </div>
 
-      {/* Class name */}
-      <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
-        <label style={{ minWidth: "64px", color: "var(--comment, #888)" }}>Class</label>
         <input
           type="text"
           value={className}
           onChange={(e) => setClassName(e.target.value)}
-          placeholder="Root"
+          placeholder="ClassName"
           style={inputStyle}
         />
-      </div>
 
-      {/* Per-language options */}
-      <OptionsPanel
-        language={language}
-        options={options}
-        onToggle={handleOptionToggle}
-      />
-
-      {/* Error */}
-      {error && (
-        <div
-          style={{
-            background: "rgba(248,113,113,0.15)",
-            color: "var(--icon-error, #f87171)",
-            padding: "8px 12px",
-            borderRadius: "6px",
-            fontSize: "12px",
-            wordBreak: "break-word",
-          }}
+        <button
+          onClick={() => setShowOptions((v) => !v)}
+          style={ghostBtn}
+          title="Toggle per-language options"
         >
-          {error}
-        </div>
-      )}
+          {showOptions ? "Hide options" : "Options"}
+        </button>
 
-      {/* Preview header */}
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-        <span style={{ fontSize: "11px", color: "var(--comment, #888)", textTransform: "uppercase", letterSpacing: "0.05em" }}>
-          Preview
-        </span>
-        {isGenerating && (
-          <span style={{ fontSize: "11px", color: "var(--comment, #888)" }}>
-            Generating…
-          </span>
-        )}
-      </div>
+        <div style={{ flex: 1 }} />
 
-      {/* Preview panel */}
-      <pre
-        style={{
-          flex: 1,
-          minHeight: "200px",
-          maxHeight: "500px",
-          overflowY: "auto",
-          background: "var(--ui-bg, #111)",
-          border: "1px solid var(--border-subtle, #2a2a2a)",
-          borderRadius: "8px",
-          padding: "12px",
-          margin: 0,
-          fontSize: "12px",
-          lineHeight: 1.6,
-          whiteSpace: "pre-wrap",
-          wordBreak: "break-word",
-          color: "var(--text-primary, #e2e8f0)",
-        }}
-      >
-        {preview || (!isGenerating && !error ? "(preview will appear here)" : "")}
-      </pre>
+        <button onClick={handleRefresh} style={ghostBtn} title="Load latest response">↻</button>
 
-      {/* Actions */}
-      <div style={{ display: "flex", gap: "8px" }}>
         <button
           onClick={handleCopy}
-          disabled={!preview || isGenerating}
-          style={primaryBtn(!preview || isGenerating)}
+          disabled={!output || isGenerating}
+          style={copyBtnStyle(!output || isGenerating, copied)}
         >
           {copied ? "Copied!" : "Copy"}
         </button>
+      </div>
+
+      {/* ── Options panel (collapsible) ── */}
+      {showOptions && (
+        <OptionsPanel language={language} options={options} onToggle={handleOptionToggle} />
+      )}
+
+      {/* ── Side-by-side panels ── */}
+      <div style={{ display: "flex", flex: 1, overflow: "hidden" }}>
+
+        {/* Left — editable JSON */}
+        <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", borderRight: "1px solid var(--border-subtle, #1e1e1e)", minWidth: 0 }}>
+          <div style={panelHeaderStyle}>JSON</div>
+          <textarea
+            value={jsonInput}
+            onChange={(e) => setJsonInput(e.target.value)}
+            placeholder={'{\n  "key": "value"\n}'}
+            spellCheck={false}
+            style={{
+              flex: 1,
+              resize: "none",
+              border: "none",
+              outline: "none",
+              background: "transparent",
+              color: "var(--text-primary, #e2e8f0)",
+              fontFamily: "'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace",
+              fontSize: "12px",
+              lineHeight: 1.6,
+              padding: "8px",
+              overflowY: "auto",
+            }}
+          />
+        </div>
+
+        {/* Right — generated code */}
+        <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", minWidth: 0 }}>
+          <div style={panelHeaderStyle}>
+            {isGenerating ? "Generating…" : langLabel}
+          </div>
+          {error ? (
+            <div style={{ padding: "8px", color: "var(--icon-error, #f87171)", fontSize: "12px", fontFamily: "monospace", whiteSpace: "pre-wrap", wordBreak: "break-word", overflowY: "auto", flex: 1 }}>
+              {error}
+            </div>
+          ) : (
+            <pre style={{
+              flex: 1,
+              margin: 0,
+              padding: "8px",
+              overflowY: "auto",
+              fontFamily: "'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace",
+              fontSize: "12px",
+              lineHeight: 1.6,
+              color: "var(--text-primary, #e2e8f0)",
+              whiteSpace: "pre-wrap",
+              wordBreak: "break-word",
+              background: "transparent",
+            }}>
+              {output || (!isGenerating ? "(output will appear here)" : "")}
+            </pre>
+          )}
+        </div>
       </div>
     </div>
   );
 }
 
-// ── Options panel ─────────────────────────────────────────────────────────────
+// ── Options panel ────────────────────────────────────────────────────────────
 
 type OptionDef = { key: keyof GeneratorOptions; label: string };
 
@@ -296,87 +298,80 @@ function OptionsPanel({
   if (defs.length === 0) return null;
 
   return (
-    <div
-      style={{
-        display: "flex",
-        flexDirection: "column",
-        gap: "6px",
-        borderTop: "1px solid var(--border-subtle, #2a2a2a)",
-        paddingTop: "10px",
-      }}
-    >
-      <span
-        style={{
-          fontSize: "11px",
-          color: "var(--comment, #888)",
-          textTransform: "uppercase",
-          letterSpacing: "0.05em",
-        }}
-      >
-        Options
-      </span>
+    <div style={{ display: "flex", gap: "12px", padding: "6px 10px", borderBottom: "1px solid var(--border-subtle, #1e1e1e)", flexWrap: "wrap", background: "var(--bg-secondary, #111)", flexShrink: 0 }}>
       {defs.map(({ key, label }) => (
-        <label
-          key={key}
-          style={{ display: "flex", alignItems: "center", gap: "8px", cursor: "pointer" }}
-        >
+        <label key={key} style={{ display: "flex", alignItems: "center", gap: "5px", cursor: "pointer", fontSize: "12px", color: "var(--comment, #888)" }}>
           <input
             type="checkbox"
             checked={Boolean((options as Record<string, unknown>)[key])}
             onChange={() => onToggle(key)}
             style={{ accentColor: "var(--icon-primary, #60a5fa)", cursor: "pointer" }}
           />
-          <span>{label}</span>
+          {label}
         </label>
       ))}
     </div>
   );
 }
 
-// ── Styles ────────────────────────────────────────────────────────────────────
-
-const inputStyle: React.CSSProperties = {
-  flex: 1,
-  background: "var(--ui-bg, #111)",
-  border: "1px solid var(--border-subtle, #2a2a2a)",
-  borderRadius: "6px",
-  padding: "5px 10px",
-  color: "var(--text-primary, #e2e8f0)",
-  fontSize: "13px",
-  outline: "none",
-};
+// ── Styles ───────────────────────────────────────────────────────────────────
 
 const selectStyle: React.CSSProperties = {
-  flex: 1,
-  background: "var(--ui-bg, #111)",
-  border: "1px solid var(--border-subtle, #2a2a2a)",
-  borderRadius: "6px",
-  padding: "5px 10px",
+  background: "var(--bg-secondary, #111)",
+  border: "1px solid var(--border-subtle, #1e1e1e)",
+  borderRadius: "5px",
+  padding: "3px 8px",
   color: "var(--text-primary, #e2e8f0)",
-  fontSize: "13px",
+  fontSize: "12px",
   cursor: "pointer",
   outline: "none",
 };
 
-const secondaryBtn: React.CSSProperties = {
-  padding: "4px 12px",
-  borderRadius: "6px",
-  border: "1px solid var(--border-subtle, #2a2a2a)",
+const inputStyle: React.CSSProperties = {
+  background: "var(--bg-secondary, #111)",
+  border: "1px solid var(--border-subtle, #1e1e1e)",
+  borderRadius: "5px",
+  padding: "3px 8px",
+  color: "var(--text-primary, #e2e8f0)",
+  fontSize: "12px",
+  outline: "none",
+  width: "90px",
+};
+
+const ghostBtn: React.CSSProperties = {
   background: "transparent",
+  border: "none",
   color: "var(--comment, #888)",
   fontSize: "12px",
   cursor: "pointer",
+  padding: "3px 6px",
+  borderRadius: "4px",
 };
 
-function primaryBtn(disabled: boolean): React.CSSProperties {
+const panelHeaderStyle: React.CSSProperties = {
+  fontSize: "10px",
+  textTransform: "uppercase",
+  letterSpacing: "0.08em",
+  color: "var(--comment, #666)",
+  padding: "4px 8px",
+  borderBottom: "1px solid var(--border-subtle, #1e1e1e)",
+  flexShrink: 0,
+};
+
+function copyBtnStyle(disabled: boolean, copied: boolean): React.CSSProperties {
   return {
-    padding: "6px 20px",
-    borderRadius: "6px",
+    padding: "3px 12px",
+    borderRadius: "5px",
     border: "none",
-    background: disabled ? "var(--border-subtle, #2a2a2a)" : "var(--icon-primary, #3b82f6)",
-    color: disabled ? "var(--comment, #888)" : "#fff",
-    fontSize: "13px",
+    background: copied
+      ? "var(--success, #22c55e)"
+      : disabled
+      ? "var(--border-subtle, #1e1e1e)"
+      : "var(--icon-primary, #3b82f6)",
+    color: disabled && !copied ? "var(--comment, #888)" : "#fff",
+    fontSize: "12px",
     fontWeight: 500,
     cursor: disabled ? "not-allowed" : "pointer",
+    transition: "background 0.15s",
   };
 }

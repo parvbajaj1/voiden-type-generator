@@ -25,6 +25,7 @@ declare module "@voiden/sdk/ui" {
       getVoidFiles: () => Promise<{ id: string; content: string }[]>;
       createFile: (path: string, content: string) => Promise<void>;
       openFile: (relativePath: string) => Promise<void>;
+      getActiveEditor: (type: "voiden" | "code") => { tabId: string; [key: string]: any } | null;
     };
     ui: {
       showToast: (message: string, type?: "info" | "success" | "warning" | "error") => void;
