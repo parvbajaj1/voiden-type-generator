@@ -11,13 +11,19 @@ await build({
   format: "esm",
   platform: "browser",
   target: "es2020",
-  // These are provided by Voiden at runtime — never bundle them
+  // Provided by Voiden at runtime — never bundle
   external: [
     "react",
     "react-dom",
     "react/jsx-runtime",
     "@voiden/sdk",
     "@voiden/sdk/ui",
+    // Node.js built-ins — available in Electron's renderer process
+    "fs", "path", "os", "crypto", "http", "https", "net", "url",
+    "stream", "buffer", "events", "util", "zlib", "child_process",
+    "node:fs", "node:path", "node:os", "node:crypto", "node:http",
+    "node:https", "node:net", "node:url", "node:stream", "node:buffer",
+    "node:events", "node:util", "node:zlib", "node:child_process",
   ],
 });
 
