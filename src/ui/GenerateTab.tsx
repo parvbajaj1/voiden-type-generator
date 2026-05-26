@@ -17,6 +17,12 @@ type Props = {
   subscribe: (fn: (r: CapturedResponse, tabId: string) => void) => () => void;
   getResponseForTab: (tabId: string) => CapturedResponse | null;
   getActiveTabId: () => string;
+  CodeEditor: React.ComponentType<{
+    readOnly?: boolean;
+    lang?: string;
+    value?: string;
+    onChange?: (value: string) => void;
+  }>;
 };
 
 type Prefs = {
@@ -44,7 +50,33 @@ function buildOptions(lang: SupportedLanguage, saved: Partial<GeneratorOptions>)
   return { language: lang, className: "", ...defaults, ...saved } as GeneratorOptions;
 }
 
-export function GenerateTab({ subscribe, getResponseForTab, getActiveTabId }: Props) {
+function formatJson(json: string): string {
+  if (!json.trim()) return "";
+  try {
+    return JSON.stringify(JSON.parse(json), null, 2);
+  } catch {
+    return json;
+  }
+}
+
+const languageMap: Record<SupportedLanguage, string> = {
+  typescript: "typescript",
+  dart: "dart",
+  go: "go",
+  kotlin: "kotlin",
+  swift: "swift",
+  java: "java",
+};
+
+const CopyIcon = () => (
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+);
+
+const CheckIcon = () => (
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+);
+
+export function GenerateTab({ subscribe, getResponseForTab, getActiveTabId, CodeEditor }: Props) {
   const prefs = loadPrefs();
 
   const [jsonInput, setJsonInput] = useState("");
@@ -58,6 +90,7 @@ export function GenerateTab({ subscribe, getResponseForTab, getActiveTabId }: Pr
   const [isGenerating, setIsGenerating] = useState(false);
   const [copied, setCopied] = useState(false);
   const [showOptions, setShowOptions] = useState(false);
+  const [showJson, setShowJson] = useState(false);
   const debounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const activeTabIdRef = useRef(getActiveTabId());
@@ -66,7 +99,7 @@ export function GenerateTab({ subscribe, getResponseForTab, getActiveTabId }: Pr
   useEffect(() => {
     return subscribe((r, tabId) => {
       activeTabIdRef.current = tabId;
-      setJsonInput(r.body);
+      setJsonInput(formatJson(r.body));
     });
   }, [subscribe]);
 
@@ -77,7 +110,7 @@ export function GenerateTab({ subscribe, getResponseForTab, getActiveTabId }: Pr
       if (current && current !== activeTabIdRef.current) {
         activeTabIdRef.current = current;
         const stored = getResponseForTab(current);
-        setJsonInput(stored?.body ?? "");
+        setJsonInput(formatJson(stored?.body ?? ""));
         setOutput("");
         setError(null);
       }
@@ -129,7 +162,7 @@ export function GenerateTab({ subscribe, getResponseForTab, getActiveTabId }: Pr
   const handleRefresh = () => {
     const tabId = getActiveTabId();
     const latest = tabId ? getResponseForTab(tabId) : null;
-    if (latest) setJsonInput(latest.body);
+    if (latest) setJsonInput(formatJson(latest.body));
   };
 
   const handleLanguageChange = (lang: SupportedLanguage) => {
@@ -158,8 +191,8 @@ export function GenerateTab({ subscribe, getResponseForTab, getActiveTabId }: Pr
   const langLabel = getAllLanguages().find((l) => l.value === language)?.label ?? language;
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", height: "100%", overflow: "hidden", background: "var(--bg-primary, #0d0d0d)", color: "var(--text-primary, #e2e8f0)", fontFamily: "sans-serif", fontSize: "13px" }}>
-
+    <div style={{ display: "flex", flexDirection: "column", height: "100%", overflow: "hidden", background: "var(--bg-primary, #0d0d0d)", color: "var(--text-primary, #e2e8f0)", fontFamily: "sans-serif" }}>
+      
       {/* ── Top bar ── */}
       <div style={{ display: "flex", alignItems: "center", gap: "6px", padding: "6px 8px", borderBottom: "1px solid var(--border-subtle, #1e1e1e)", flexShrink: 0, flexWrap: "wrap" }}>
         <select
@@ -190,14 +223,24 @@ export function GenerateTab({ subscribe, getResponseForTab, getActiveTabId }: Pr
 
         <div style={{ flex: 1 }} />
 
+        <button 
+          onClick={() => setShowJson(v => !v)} 
+          style={showJson ? activeGhostBtn : ghostBtn} 
+          title="Toggle source JSON editing"
+        >
+          {showJson ? "Hide JSON" : "Edit JSON"}
+        </button>
+
+        {showJson && <button onClick={() => setJsonInput(formatJson(jsonInput))} style={ghostBtn} title="Format JSON">Format</button>}
         <button onClick={handleRefresh} style={ghostBtn} title="Load latest response">↻</button>
 
         <button
           onClick={handleCopy}
           disabled={!output || isGenerating}
           style={copyBtnStyle(!output || isGenerating, copied)}
+          title="Copy to clipboard"
         >
-          {copied ? "Copied!" : "Copy"}
+          {copied ? <CheckIcon /> : <CopyIcon />}
         </button>
       </div>
 
@@ -206,32 +249,22 @@ export function GenerateTab({ subscribe, getResponseForTab, getActiveTabId }: Pr
         <OptionsPanel language={language} options={options} onToggle={handleOptionToggle} />
       )}
 
-      {/* ── Side-by-side panels ── */}
+      {/* ── Side-by-side or Single panel ── */}
       <div style={{ display: "flex", flex: 1, overflow: "hidden" }}>
 
-        {/* Left — editable JSON */}
-        <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", borderRight: "1px solid var(--border-subtle, #1e1e1e)", minWidth: 0 }}>
-          <div style={panelHeaderStyle}>JSON</div>
-          <textarea
-            value={jsonInput}
-            onChange={(e) => setJsonInput(e.target.value)}
-            placeholder={'{\n  "key": "value"\n}'}
-            spellCheck={false}
-            style={{
-              flex: 1,
-              resize: "none",
-              border: "none",
-              outline: "none",
-              background: "transparent",
-              color: "var(--text-primary, #e2e8f0)",
-              fontFamily: "'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace",
-              fontSize: "12px",
-              lineHeight: 1.6,
-              padding: "8px",
-              overflowY: "auto",
-            }}
-          />
-        </div>
+        {/* Left — editable JSON (conditional) */}
+        {showJson && (
+          <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", borderRight: "1px solid var(--border-subtle, #1e1e1e)", minWidth: 0 }}>
+            <div style={panelHeaderStyle}>JSON (SDK)</div>
+            <div style={{ flex: 1, minHeight: 0, overflowY: "auto" }}>
+              <CodeEditor
+                lang="json"
+                value={jsonInput}
+                onChange={setJsonInput}
+              />
+            </div>
+          </div>
+        )}
 
         {/* Right — generated code */}
         <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", minWidth: 0 }}>
@@ -243,21 +276,13 @@ export function GenerateTab({ subscribe, getResponseForTab, getActiveTabId }: Pr
               {error}
             </div>
           ) : (
-            <pre style={{
-              flex: 1,
-              margin: 0,
-              padding: "8px",
-              overflowY: "auto",
-              fontFamily: "'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace",
-              fontSize: "12px",
-              lineHeight: 1.6,
-              color: "var(--text-primary, #e2e8f0)",
-              whiteSpace: "pre-wrap",
-              wordBreak: "break-word",
-              background: "transparent",
-            }}>
-              {output || (!isGenerating ? "(output will appear here)" : "")}
-            </pre>
+            <div style={{ flex: 1, minHeight: 0, overflowY: "auto" }}>
+              <CodeEditor
+                lang={languageMap[language]}
+                value={output || (!isGenerating ? "(output will appear here)" : "")}
+                readOnly={true}
+              />
+            </div>
           )}
         </div>
       </div>
@@ -282,7 +307,6 @@ const optionDefs: Record<SupportedLanguage, OptionDef[]> = {
   kotlin: [{ key: "kotlinSerializable", label: "@Serializable (kotlinx)" }],
   swift: [{ key: "swiftUseStructs", label: "Structs (vs classes)" }],
   java: [{ key: "javaGetters", label: "Getters / setters" }],
-  zod: [{ key: "zodStrict", label: "Strict mode" }],
 };
 
 function OptionsPanel({
@@ -348,6 +372,12 @@ const ghostBtn: React.CSSProperties = {
   borderRadius: "4px",
 };
 
+const activeGhostBtn: React.CSSProperties = {
+  ...ghostBtn,
+  color: "var(--icon-primary, #3b82f6)",
+  background: "rgba(59, 130, 246, 0.1)",
+};
+
 const panelHeaderStyle: React.CSSProperties = {
   fontSize: "10px",
   textTransform: "uppercase",
@@ -360,18 +390,20 @@ const panelHeaderStyle: React.CSSProperties = {
 
 function copyBtnStyle(disabled: boolean, copied: boolean): React.CSSProperties {
   return {
-    padding: "3px 12px",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    width: "28px",
+    height: "28px",
     borderRadius: "5px",
     border: "none",
-    background: copied
-      ? "var(--success, #22c55e)"
+    background: "transparent",
+    color: copied
+      ? "#22c55e"
       : disabled
       ? "var(--border-subtle, #1e1e1e)"
-      : "var(--icon-primary, #3b82f6)",
-    color: disabled && !copied ? "var(--comment, #888)" : "#fff",
-    fontSize: "12px",
-    fontWeight: 500,
+      : "var(--comment, #888)",
     cursor: disabled ? "not-allowed" : "pointer",
-    transition: "background 0.15s",
+    transition: "color 0.15s",
   };
 }

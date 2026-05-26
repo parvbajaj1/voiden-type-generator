@@ -4,8 +4,7 @@ export type SupportedLanguage =
   | "go"
   | "kotlin"
   | "swift"
-  | "java"
-  | "zod";
+  | "java";
 
 export type CapturedResponse = {
   body: string;
@@ -32,6 +31,4 @@ export type GeneratorOptions = {
   swiftUseStructs: boolean;
   // Java
   javaGetters: boolean;
-  // Zod
-  zodStrict: boolean;
 };

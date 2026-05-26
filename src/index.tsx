@@ -56,19 +56,8 @@ export default (ctx: PluginContext) => ({
         subscribe,
         getResponseForTab,
         getActiveTabId,
+        CodeEditor: ctx.ui.components.CodeEditor,
       }),
-    });
-
-    (ctx as any).registerStatusBarItem({
-      id: "voiden-type-generator-btn",
-      icon: "Braces",
-      label: "Types",
-      tooltip: "Generate types from last response",
-      position: "right",
-      onClick: () => {
-        ctx.ui.openRightPanel();
-        ctx.ui.openRightSidebarTab(TAB_ID);
-      },
     });
   },
 

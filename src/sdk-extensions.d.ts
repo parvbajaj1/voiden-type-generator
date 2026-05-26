@@ -1,36 +1,43 @@
-import type { PluginContext } from "@voiden/sdk/ui";
+import type { PluginContext as BasePluginContext } from "@voiden/sdk/ui";
 
 declare module "@voiden/sdk/ui" {
+  interface UIComponents {
+    CodeEditor: React.ComponentType<{
+      readOnly?: boolean;
+      lang?: string;
+      value?: string;
+      onChange?: (value: string) => void;
+      showReplace?: boolean;
+    }>;
+  }
+
+  interface PluginContextUI {
+    components: UIComponents;
+    openRightPanel: () => void;
+    openRightSidebarTab: (id: string) => void;
+    showToast: (message: string, type?: "info" | "success" | "warning" | "error") => void;
+  }
+
   interface PluginContext {
     onBuildRequest: (
-      handler: (request: Record<string, any>, editor: any) => Promise<Record<string, any>> | Record<string, any>
+      handler: (request: Record<string, any>) => any
     ) => void;
     onProcessResponse: (
       handler: (response: {
-        body: string;
+        body: string | object;
         status: number;
-        statusText: string;
-        headers: Record<string, string>;
-        elapsedTime: number;
-        __sectionIndex: number;
-        __sectionColorIndex: number;
-        __sectionLabel: string;
+        __sectionLabel?: string;
       }) => void
     ) => void;
-    files: {
-      read: (path: string) => Promise<string>;
-    };
+    registerSidebarTab: (side: "left" | "right", config: {
+      id: string;
+      title: string;
+      icon: string;
+      component: React.ComponentType<any>;
+    }) => void;
     project: {
-      getActiveProject: () => Promise<string>;
-      getVoidFiles: () => Promise<{ id: string; content: string }[]>;
-      createFile: (path: string, content: string) => Promise<void>;
-      openFile: (relativePath: string) => Promise<void>;
-      getActiveEditor: (type: "voiden" | "code") => { tabId: string; [key: string]: any } | null;
+      getActiveEditor: (type: "voiden" | "code") => any;
     };
-    ui: {
-      showToast: (message: string, type?: "info" | "success" | "warning" | "error") => void;
-      openRightSidebarTab: (id: string, openResponsePanel?: boolean) => void;
-      openRightPanel: () => void;
-    };
+    ui: PluginContextUI;
   }
 }

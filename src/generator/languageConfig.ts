@@ -59,13 +59,6 @@ const configs: Record<SupportedLanguage, LanguageConfig> = {
       "just-types": opts.javaGetters ? "false" : "true",
     }),
   },
-  zod: {
-    rendererName: "zod",
-    label: "Zod",
-    defaultOptions: { zodStrict: false },
-    // quicktype-core zod renderer support varies by version — options passed empty
-    buildRendererOptions: (_opts) => ({}),
-  },
 };
 
 export function getLanguageConfig(lang: SupportedLanguage): LanguageConfig {
