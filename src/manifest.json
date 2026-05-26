@@ -24,5 +24,5 @@
     "core": "^1.0.0",
     "sdk": "^1.0.0"
   },
-  "readme": "# Voiden Type Generator\n\nGenerate typed model code from your API responses without leaving Voiden.\n\n## Usage\n\n1. Run any HTTP request that returns JSON\n2. Open the **Types** tab in the right sidebar\n3. Select your target language and class name\n4. Click the **Copy** icon to copy the generated code\n\n## Supported Languages\n\nTypeScript · Dart · Go · Kotlin · Swift · Java"
+  "readme": "# Voiden Type Generator\n\nGenerate typed model code from your API responses without leaving Voiden.\n\n## Usage\n\n1. Run any HTTP request that returns JSON\n2. Open the **Types** tab in the right sidebar\n3. Select your target language and class name\n4. Click the **Copy** icon to copy the generated code\n\n## Supported Languages\n\nTypeScript · Dart · Go · Kotlin · Swift · Java\n\n---\n\nPowered by [quicktype](https://github.com/quicktype/quicktype)."
 }
